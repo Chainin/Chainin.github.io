@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8" />
+  <meta
+    name="viewport"
+    content="initial-scale=1,maximum-scale=1,user-scalable=no"
+  />
+
+  <title>
+    CH4 Concentration, Utah, 2019
+  </title>
+
+  <link
+    rel="stylesheet"
+    href="https://js.arcgis.com/4.13/esri/themes/light/main.css"
+  />
+  <script src="https://js.arcgis.com/4.13/"></script>
+
+  <style>
+    html,
+    body,
+    #viewDiv {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+    }
+
+    #containerDiv {
+      background-color: white;
+      padding: 3px;
+      text-align: center;
+    }
+
+    #title {
+      font-size: 14pt;
+    }
+
+    .esri-ui-top-left {
+      top: 20px;
+      left: 30px;
+    }
+  </style>
+
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/SceneView",
+      "esri/layers/CSVLayer",
+      "esri/renderers/smartMapping/creators/univariateColorSize",
+      "esri/renderers/smartMapping/statistics/histogram",
+      "esri/widgets/smartMapping/ColorSizeSlider"
+    ], function (
+      Map,
+      SceneView,
+      CSVLayer,
+      colorAndSizeRendererCreator,
+      histogram,
+      ColorSizeSlider
+    ) {
+      const map = new Map({
+        basemap: "hybrid"
+      });
+
+      // The minSize and maxSize of volumetric symbols are determined
+      // based on the view/camera the data will be displayed in.
+
+      const view = new SceneView({
+        container: "viewDiv",
+        map: map,
+        camera: {
+          position: {
+            x: -111.362,
+            y: 35.5,
+            z: 1100000
+          },
+          tilt: 20
+        }
+      });
+
+      // Create FeatureLayer instance with popupTemplate
+      var url = "./4Utah.csv";
+
+      var template = {
+        title: "CH4 Concentration: {CH4}",
+        content: "Date: {Date} <br>latitude: {latitude} <br>longitude: {longitude} <br>State: {NAME}"
+      };
+      const layer = new CSVLayer({
+        url: url,
+        popupTemplate: template
+        // elevationInfo: {
+        //   // drapes icons on the surface of the globe
+        //   mode: "on-the-ground"
+        // }
+      });
+      map.add(layer);
+
+      // configure parameters for the renderer generator.
+      // the layer must be specified along with a field name
+      // or arcade expression. The view and other properties determine
+      // the appropriate default color and size schemes.
+
+      const params = {
+        layer: layer,
+        field: "CH4",
+        view: view,
+        symbolType: "3d-volumetric",
+        // sizeOptions: {
+        //   sizeScheme: {
+        //     // minSize: 50,
+        //     // maxSize: 500
+        //   }
+        // },
+        minValue: 2.0,
+        maxValue: 55.0
+      };
+
+      // Generate a renderer visualizing a single variable
+      // with continuous color and size based on the
+      // statistics of the data in the provided layer
+      // and field name.
+      //
+      // This resolves to an object containing several helpful
+      // properties, including size/color schemes, statistics,
+      // the renderer, and visual variables
+      let rendererResult = null;
+      var storedRenderer = null;
+      colorAndSizeRendererCreator
+        .createContinuousRenderer(params)
+        .then(function (response) {
+          // set generated renderer on the layer and add it to the map
+          rendererResult = response;
+          layer.renderer = response.renderer;
+          storedRenderer = response.renderer;
+          if (!layer.visible) {
+            layer.visible = true;
+          }
+
+          // generate a histogram for use in the slider. Input the layer
+          // and field name to generate it.
+          // You can also use an arcade expression instead of
+          // a field and normalization field
+
+          return histogram({
+            layer: layer,
+            field: params.field,
+            numBins: 1000,
+            minValue: params.minValue,
+            maxValue: params.maxValue
+          });
+        })
+        .then(function (histogramResult) {
+          const slider = ColorSizeSlider.fromRendererResult(
+            rendererResult,
+            histogramResult
+          );
+          slider.container = "slider";
+          slider.viewModel.precision = 4;
+          slider.labelFormatFunction = function (value) {
+            return value.toFixed(4).toLocaleString();
+          };
+          slider.histogramConfig.standardDeviation = null;
+          view.ui.add("containerDiv", "bottom-left");
+
+          // when the user slides the handle(s), update the renderer
+          // with the updated color and size visual variable objects
+          function changeEventHandler() {
+            const renderer = layer.renderer.clone();
+            renderer.visualVariables = slider.updateVisualVariables(
+              renderer.visualVariables
+            );
+            layer.renderer = renderer;
+            // storedRenderer = renderer;
+          }
+
+          function changeEventHandler2() {
+            const renderer = layer.renderer.clone();
+            sizeChangeFactor =
+              view.zoom * -0.14030612244897959 + 2.1224489795918367347;
+            if (sizeChangeFactor < 0.005) {
+              sizeChangeFactor = 0.005;
+            }
+            if (sizeChangeFactor > 1.0) {
+              sizeChangeFactor = 1.0;
+            }
+            renderer.visualVariables[1].minSize =
+              storedRenderer.visualVariables[1].minSize * sizeChangeFactor;
+            renderer.visualVariables[0].minSize =
+              storedRenderer.visualVariables[0].minSize * sizeChangeFactor;
+            renderer.visualVariables[0].maxSize =
+              storedRenderer.visualVariables[0].maxSize * sizeChangeFactor;
+
+            layer.renderer = renderer;
+            console.log(
+              view.zoom,
+              layer.renderer.visualVariables[1].minSize,
+              layer.renderer.visualVariables[0].minSize,
+              layer.renderer.visualVariables[0].maxSize
+            );
+          }
+
+          slider.on(
+            ["thumb-change", "thumb-drag", "min-change", "max-change"],
+            changeEventHandler
+          );
+          view.on(
+            ["mouse-wheel", "double-click", "pointer-enter"],
+            changeEventHandler2
+          );
+        });
+      // .catch(function (error) {
+      //   console.log("there was an error: ", error);
+      // });
+    });
+  </script>
+</head>
+
+<body>
+  <div id="viewDiv"></div>
+  <div id="containerDiv">
+    <span
+      id="title"
+      class="esri-widget"
+    >CH4 Concentration</span>
+    <div id="slider"></div>
+  </div>
+</body>
+
+</html>
